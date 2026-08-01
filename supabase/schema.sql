@@ -71,10 +71,31 @@ create table if not exists messages (
   created_at timestamptz default now()
 );
 
+-- Follows relationship table
+create table if not exists follows (
+  follower_id uuid references profiles(id) on delete cascade,
+  following_id uuid references profiles(id) on delete cascade,
+  created_at timestamptz default now(),
+  primary key (follower_id, following_id)
+);
+
+-- Encrypted Direct Messages table
+create table if not exists direct_messages (
+  id uuid primary key default gen_random_uuid(),
+  sender_id uuid references profiles(id) on delete cascade,
+  recipient_id uuid references profiles(id) on delete cascade,
+  encrypted_content text not null,
+  is_read boolean default false,
+  read_at timestamptz,
+  created_at timestamptz default now()
+);
+
 -- Row Level Security (RLS)
 alter table profiles enable row level security;
 alter table streams enable row level security;
 alter table messages enable row level security;
+alter table follows enable row level security;
+alter table direct_messages enable row level security;
 
 -- Drop existing policies if re-applying
 drop policy if exists "profiles are publicly readable" on profiles;
@@ -84,6 +105,10 @@ drop policy if exists "authenticated users create streams" on streams;
 drop policy if exists "hosts update own streams" on streams;
 drop policy if exists "messages are publicly readable" on messages;
 drop policy if exists "authenticated users send messages" on messages;
+drop policy if exists "follows are publicly readable" on follows;
+drop policy if exists "users manage own follows" on follows;
+drop policy if exists "users read own direct messages" on direct_messages;
+drop policy if exists "users send direct messages" on direct_messages;
 
 create policy "profiles are publicly readable" on profiles for select using (true);
 create policy "users update own profile" on profiles for update using (auth.uid() = id);
@@ -95,10 +120,16 @@ create policy "hosts update own streams" on streams for update using (auth.uid()
 create policy "messages are publicly readable" on messages for select using (true);
 create policy "authenticated users send messages" on messages for insert with check (auth.uid() = sender_id);
 
+create policy "follows are publicly readable" on follows for select using (true);
+create policy "users manage own follows" on follows for all using (auth.uid() = follower_id);
+
+create policy "users read own direct messages" on direct_messages for select using (auth.uid() = sender_id or auth.uid() = recipient_id);
+create policy "users send direct messages" on direct_messages for insert with check (auth.uid() = sender_id);
+
 -- Enable Realtime on these tables
 begin;
   drop publication if exists supabase_realtime;
-  create publication supabase_realtime for table streams, messages;
+  create publication supabase_realtime for table streams, messages, follows, direct_messages;
 exception
   when others then null;
 end;

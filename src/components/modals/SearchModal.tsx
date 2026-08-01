@@ -15,11 +15,16 @@ export const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose, onSel
   useEffect(() => {
     if (isOpen) {
       fetch('/api/streams')
-        .then((res) => res.json())
+        .then((res) => {
+          if (!res.ok) throw new Error('Search API status not ok');
+          return res.json();
+        })
         .then((data) => {
           if (Array.isArray(data)) setStreams(data);
         })
-        .catch((err) => console.error('Failed to load streams in search:', err));
+        .catch((err) => {
+          console.warn('Error fetching streams in search:', err);
+        });
     }
   }, [isOpen]);
 

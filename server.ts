@@ -294,6 +294,22 @@ function closeRoomStream(roomId: string, reason: string) {
   roomClients.delete(roomId);
 }
 
+function broadcastOnlineUsers() {
+  const onlineSet = new Set<string>();
+  for (const client of activeClients) {
+    if (client.userId) onlineSet.add(client.userId);
+  }
+  const payload = JSON.stringify({
+    type: 'online-status-update',
+    onlineUserIds: Array.from(onlineSet),
+  });
+  for (const client of activeClients) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(payload);
+    }
+  }
+}
+
 wss.on('connection', (ws: WebSocket) => {
   const conn: ClientConnection = {
     ws,
@@ -307,6 +323,97 @@ wss.on('connection', (ws: WebSocket) => {
       const data = JSON.parse(rawMessage.toString());
 
       switch (data.type) {
+        case 'identify-user': {
+          if (data.user?.id) conn.userId = data.user.id;
+          if (data.user?.name) conn.userName = data.user.name;
+          broadcastOnlineUsers();
+          break;
+        }
+
+        case 'direct-message': {
+          const recipientId = data.recipientId;
+          const encryptedContent = data.encryptedContent;
+          const senderId = conn.userId;
+          const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const msgId = `dm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+          const messagePayload = {
+            id: msgId,
+            senderId,
+            recipientId,
+            encryptedContent,
+            isRead: false,
+            timestamp,
+          };
+
+          // In-memory store
+          directMessagesStore.push({
+            id: msgId,
+            senderId,
+            recipientId,
+            encryptedContent,
+            timestamp,
+          });
+
+          // Supabase persistence
+          if (supabaseAdmin) {
+            (async () => {
+              try {
+                await supabaseAdmin.from('direct_messages').insert({
+                  id: msgId,
+                  sender_id: senderId,
+                  recipient_id: recipientId,
+                  encrypted_content: encryptedContent,
+                  is_read: false,
+                });
+              } catch (e) {}
+            })();
+          }
+
+          // Instant 0ms WebSocket delivery to recipient AND sender
+          for (const client of activeClients) {
+            if ((client.userId === recipientId || client.userId === senderId) && client.ws.readyState === WebSocket.OPEN) {
+              client.ws.send(JSON.stringify({
+                type: 'direct-message-received',
+                message: messagePayload,
+              }));
+            }
+          }
+          break;
+        }
+
+        case 'mark-messages-read': {
+          const senderId = data.senderId;
+          const readerId = conn.userId;
+
+          directMessagesStore.forEach((m) => {
+            if (m.senderId === senderId && m.recipientId === readerId) {
+              (m as any).isRead = true;
+            }
+          });
+
+          if (supabaseAdmin) {
+            (async () => {
+              try {
+                await supabaseAdmin.from('direct_messages')
+                  .update({ is_read: true, read_at: new Date().toISOString() })
+                  .match({ sender_id: senderId, recipient_id: readerId });
+              } catch (e) {}
+            })();
+          }
+
+          for (const client of activeClients) {
+            if (client.userId === senderId && client.ws.readyState === WebSocket.OPEN) {
+              client.ws.send(JSON.stringify({
+                type: 'direct-messages-read-ack',
+                readerId,
+                senderId,
+              }));
+            }
+          }
+          break;
+        }
+
         case 'authenticate-token': {
           if (supabaseAdmin && data.token) {
             try {
@@ -753,6 +860,7 @@ wss.on('connection', (ws: WebSocket) => {
 
   ws.on('close', () => {
     activeClients.delete(conn);
+    broadcastOnlineUsers();
     if (conn.roomId) {
       const targetRoomId = conn.roomId;
       if (roomClients.has(targetRoomId)) {
@@ -847,21 +955,100 @@ app.post('/api/streams', (req, res) => {
   res.json(newRoom);
 });
 
+// Helper to get profiles directly from Supabase database
+async function getSupabaseProfiles() {
+  if (supabaseAdmin) {
+    try {
+      const { data, error } = await supabaseAdmin.from('profiles').select('*');
+      if (!error && data && data.length > 0) {
+        return data.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          handle: p.handle,
+          avatar: p.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400',
+          bio: p.bio || 'VibeLive Member',
+          country: p.country || 'India',
+          countryFlag: p.country_flag || '🇮🇳',
+          coins: p.coins || 1000,
+          diamonds: p.diamonds || 0,
+          followers: p.followers || 0,
+          following: p.following || 0,
+          isVerified: p.is_verified || false,
+          level: p.level || 1,
+          vipLevel: p.vip_level || 0,
+          svip: p.svip || false,
+        }));
+      }
+    } catch (e) {
+      console.warn('Supabase profiles fetch note:', e);
+    }
+  }
+  return [];
+}
+
 // User Profile & Wallet
 app.get('/api/user/profile', (_req, res) => {
   res.json(currentUserStore);
 });
 
-// Follow System REST Endpoints
-app.get('/api/user/following', (req, res) => {
+// Search Users REST endpoint
+app.get('/api/users/search', async (req, res) => {
+  const query = ((req.query.q as string) || '').toLowerCase().trim();
   const currentUserId = (req.query.userId as string) || currentUserStore.id;
-  const followingEntries = followsStore.filter((f) => f.followerId === currentUserId);
 
-  const result = followingEntries.map((f) => {
-    const targetUser = ALL_SAMPLE_USERS[f.followingId] || {
-      id: f.followingId,
-      name: `User ${f.followingId}`,
-      handle: `user_${f.followingId}`,
+  let dbProfiles = await getSupabaseProfiles();
+  if (dbProfiles.length === 0) {
+    dbProfiles = Object.values(ALL_SAMPLE_USERS) as any[];
+  }
+
+  if (query) {
+    dbProfiles = dbProfiles.filter(
+      (u) => u.name.toLowerCase().includes(query) || u.handle.toLowerCase().includes(query)
+    );
+  }
+
+  const result = dbProfiles.map((u) => ({
+    ...u,
+    isOnline: checkIsUserOnline(u.id),
+    isMutual: checkIsMutualFollow(currentUserId, u.id),
+  }));
+
+  res.json(result);
+});
+
+// Follow System REST Endpoints
+app.get('/api/user/following', async (req, res) => {
+  const currentUserId = (req.query.userId as string) || currentUserStore.id;
+
+  let followingUserIds: string[] = [];
+
+  if (supabaseAdmin) {
+    try {
+      const { data: followRows } = await supabaseAdmin
+        .from('follows')
+        .select('following_id')
+        .eq('follower_id', currentUserId);
+      if (followRows && followRows.length > 0) {
+        followingUserIds = followRows.map((f: any) => f.following_id);
+      }
+    } catch (e) {}
+  }
+
+  if (followingUserIds.length === 0) {
+    followingUserIds = followsStore
+      .filter((f) => f.followerId === currentUserId)
+      .map((f) => f.followingId);
+  }
+
+  const dbProfiles = await getSupabaseProfiles();
+  const userMap = new Map<string, any>();
+  dbProfiles.forEach((p) => userMap.set(p.id, p));
+
+  const result = followingUserIds.map((targetId) => {
+    const targetUser = userMap.get(targetId) || ALL_SAMPLE_USERS[targetId] || {
+      id: targetId,
+      name: `User ${targetId.slice(0, 6)}`,
+      handle: `user_${targetId.slice(0, 6)}`,
       avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400',
       bio: 'VibeLive Member',
       country: 'India',
@@ -933,8 +1120,11 @@ app.post('/api/user/follow', (req, res) => {
 });
 
 app.get('/api/users/online', (_req, res) => {
-  const onlineIds = Object.keys(ALL_SAMPLE_USERS).filter((id) => checkIsUserOnline(id));
-  res.json({ onlineUserIds: onlineIds });
+  const onlineIds = new Set<string>();
+  for (const client of activeClients) {
+    if (client.userId) onlineIds.add(client.userId);
+  }
+  res.json({ onlineUserIds: Array.from(onlineIds) });
 });
 
 app.post('/api/wallet/buy-coins', (req, res) => {
@@ -962,8 +1152,33 @@ app.get('/api/reels', (_req, res) => {
 });
 
 // Direct Messages REST API (Encrypted payloads stored in DB)
-app.get('/api/direct-messages/conversations', (req, res) => {
+app.get('/api/direct-messages/conversations', async (req, res) => {
   const currentUserId = (req.query.userId as string) || currentUserStore.id;
+
+  let allDMs: any[] = [];
+  if (supabaseAdmin) {
+    try {
+      const { data: dms } = await supabaseAdmin
+        .from('direct_messages')
+        .select('*')
+        .or(`sender_id.eq.${currentUserId},recipient_id.eq.${currentUserId}`)
+        .order('created_at', { ascending: true });
+      if (dms && dms.length > 0) {
+        allDMs = dms.map((d: any) => ({
+          id: d.id,
+          senderId: d.sender_id,
+          recipientId: d.recipient_id,
+          encryptedContent: d.encrypted_content,
+          isRead: Boolean(d.is_read),
+          timestamp: new Date(d.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        }));
+      }
+    } catch (e) {}
+  }
+
+  if (allDMs.length === 0) {
+    allDMs = directMessagesStore;
+  }
 
   const involvedUserIds = new Set<string>();
 
@@ -972,18 +1187,22 @@ app.get('/api/direct-messages/conversations', (req, res) => {
     if (f.followingId === currentUserId) involvedUserIds.add(f.followerId);
   });
 
-  directMessagesStore.forEach((m) => {
+  allDMs.forEach((m) => {
     if (m.senderId === currentUserId) involvedUserIds.add(m.recipientId);
     if (m.recipientId === currentUserId) involvedUserIds.add(m.senderId);
   });
 
   involvedUserIds.delete(currentUserId);
 
+  const dbProfiles = await getSupabaseProfiles();
+  const profileMap = new Map<string, any>();
+  dbProfiles.forEach((p) => profileMap.set(p.id, p));
+
   const primary: any[] = [];
   const requests: any[] = [];
 
   involvedUserIds.forEach((otherId) => {
-    const userObj = ALL_SAMPLE_USERS[otherId] || {
+    const userObj = profileMap.get(otherId) || ALL_SAMPLE_USERS[otherId] || {
       id: otherId,
       name: `User ${otherId.slice(0, 6)}`,
       handle: `user_${otherId.slice(0, 6)}`,
@@ -991,7 +1210,7 @@ app.get('/api/direct-messages/conversations', (req, res) => {
       bio: '',
     };
 
-    const msgs = directMessagesStore.filter(
+    const msgs = allDMs.filter(
       (m) =>
         (m.senderId === currentUserId && m.recipientId === otherId) ||
         (m.senderId === otherId && m.recipientId === currentUserId)
@@ -1000,6 +1219,7 @@ app.get('/api/direct-messages/conversations', (req, res) => {
     const lastMsg = msgs[msgs.length - 1];
     const isMutual = checkIsMutualFollow(currentUserId, otherId);
     const isOnline = checkIsUserOnline(otherId);
+    const unreadCount = msgs.filter((m) => m.recipientId === currentUserId && !m.isRead).length;
 
     const convItem = {
       id: otherId,
@@ -1012,7 +1232,7 @@ app.get('/api/direct-messages/conversations', (req, res) => {
       },
       lastMsgEncrypted: lastMsg ? lastMsg.encryptedContent : encryptMessage('No messages yet'),
       time: lastMsg ? lastMsg.timestamp : 'New',
-      unread: 0,
+      unread: unreadCount,
       isMutual,
       isOnline,
       messages: msgs,
@@ -1028,9 +1248,32 @@ app.get('/api/direct-messages/conversations', (req, res) => {
   res.json({ primary, requests });
 });
 
-app.get('/api/direct-messages/:userId', (req, res) => {
+app.get('/api/direct-messages/:userId', async (req, res) => {
   const { userId } = req.params;
   const currentUserId = (req.query.currentUserId as string) || currentUserStore.id;
+
+  if (supabaseAdmin) {
+    try {
+      const { data: dms } = await supabaseAdmin
+        .from('direct_messages')
+        .select('*')
+        .or(`and(sender_id.eq.${currentUserId},recipient_id.eq.${userId}),and(sender_id.eq.${userId},recipient_id.eq.${currentUserId})`)
+        .order('created_at', { ascending: true });
+
+      if (dms && dms.length > 0) {
+        return res.json(
+          dms.map((d: any) => ({
+            id: d.id,
+            senderId: d.sender_id,
+            recipientId: d.recipient_id,
+            encryptedContent: d.encrypted_content,
+            isRead: Boolean(d.is_read),
+            timestamp: new Date(d.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          }))
+        );
+      }
+    } catch (e) {}
+  }
 
   const msgs = directMessagesStore.filter(
     (m) =>
@@ -1047,30 +1290,43 @@ app.post('/api/direct-messages', (req, res) => {
     return res.status(400).json({ error: 'recipientId and encryptedContent are required' });
   }
 
+  const sender = senderId || currentUserStore.id;
+  const msgId = `dm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
   const newMsg = {
-    id: `dm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-    senderId: senderId || currentUserStore.id,
+    id: msgId,
+    senderId: sender,
     recipientId,
     encryptedContent,
-    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    isRead: false,
+    timestamp: timeStr,
   };
 
   directMessagesStore.push(newMsg);
 
-  // If Supabase is available, persist encrypted payload in messages table
   if (supabaseAdmin) {
     (async () => {
       try {
         await supabaseAdmin.from('direct_messages').insert({
-          id: newMsg.id,
-          sender_id: newMsg.senderId,
-          recipient_id: newMsg.recipientId,
+          id: msgId,
+          sender_id: sender,
+          recipient_id: recipientId,
           encrypted_content: encryptedContent,
+          is_read: false,
         });
-      } catch (e) {
-        // Safe failover
-      }
+      } catch (e) {}
     })();
+  }
+
+  // Instant 0ms WebSocket delivery
+  for (const client of activeClients) {
+    if ((client.userId === recipientId || client.userId === sender) && client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(JSON.stringify({
+        type: 'direct-message-received',
+        message: newMsg,
+      }));
+    }
   }
 
   res.json(newMsg);

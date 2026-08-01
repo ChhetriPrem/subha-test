@@ -22,7 +22,13 @@ interface SocketContextType {
   cancelStageRequest: () => void;
   approveStageRequest: (requestId: string) => void;
   sendDrawStroke: (stroke: any) => void;
+  clearCanvas: () => void;
   endStream: () => void;
+  sendDirectMessage: (recipientId: string, encryptedContent: string) => void;
+  markDirectMessagesRead: (senderId: string) => void;
+  incomingDirectMessage: any;
+  readReceiptEvent: { readerId: string; senderId: string } | null;
+  onlineUserIds: Set<string>;
   isStreamEnded: boolean;
   streamEndReason: string;
   chatMessages: ChatMessage[];
@@ -56,6 +62,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [remoteMediaStreams, setRemoteMediaStreams] = useState<Map<string, PeerMediaStream>>(new Map());
   const [isStreamEnded, setIsStreamEnded] = useState(false);
   const [streamEndReason, setStreamEndReason] = useState('');
+  const [incomingDirectMessage, setIncomingDirectMessage] = useState<any>(null);
+  const [readReceiptEvent, setReadReceiptEvent] = useState<{ readerId: string; senderId: string } | null>(null);
+  const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     sfuManager.initSocket((payload) => safeSend(payload), user.id);
@@ -86,6 +95,14 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           retryCount = 0;
           console.log('⚡ Connected to VibeLive Realtime Server:', wsUrl);
 
+          // Identify user on socket open for instant direct messages & online status
+          ws.send(
+            JSON.stringify({
+              type: 'identify-user',
+              user: userRef.current,
+            })
+          );
+
           // Auto re-join active room if connection restored
           if (activeRoomIdRef.current) {
             ws.send(
@@ -104,6 +121,20 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             const data = JSON.parse(event.data);
 
             switch (data.type) {
+              case 'direct-message-received':
+                setIncomingDirectMessage(data.message);
+                break;
+
+              case 'direct-messages-read-ack':
+                setReadReceiptEvent({ readerId: data.readerId, senderId: data.senderId });
+                break;
+
+              case 'online-status-update':
+                if (Array.isArray(data.onlineUserIds)) {
+                  setOnlineUserIds(new Set(data.onlineUserIds));
+                }
+                break;
+
               case 'chat-message':
                 setChatMessages((prev) => [...prev.slice(-100), data.message]);
                 break;
@@ -443,6 +474,21 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setStreamEndReason('Host ended the live stream.');
   };
 
+  const sendDirectMessage = (recipientId: string, encryptedContent: string) => {
+    safeSend({
+      type: 'direct-message',
+      recipientId,
+      encryptedContent,
+    });
+  };
+
+  const markDirectMessagesRead = (senderId: string) => {
+    safeSend({
+      type: 'mark-messages-read',
+      senderId,
+    });
+  };
+
   const contextValue = React.useMemo(() => ({
     isConnected,
     activeRoomId,
@@ -464,6 +510,11 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     sendDrawStroke,
     clearCanvas,
     endStream,
+    sendDirectMessage,
+    markDirectMessagesRead,
+    incomingDirectMessage,
+    readReceiptEvent,
+    onlineUserIds,
     isStreamEnded,
     streamEndReason,
     chatMessages,
@@ -477,6 +528,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }), [
     isConnected,
     activeRoomId,
+    incomingDirectMessage,
+    readReceiptEvent,
+    onlineUserIds,
     isStreamEnded,
     streamEndReason,
     chatMessages,

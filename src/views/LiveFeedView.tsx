@@ -36,10 +36,10 @@ export const LiveFeedView: React.FC<LiveFeedViewProps> = ({ onSelectStream, onOp
       const res = await fetch('/api/streams?mode=solo');
       if (res.ok) {
         const data: StreamRoom[] = await res.json();
-        setSoloStreams(data.length > 0 ? data : []);
+        setSoloStreams(data || []);
       }
     } catch (e) {
-      console.error('Failed to fetch solo streams:', e);
+      console.warn('Failed to fetch solo streams:', e);
     } finally {
       setLoading(false);
     }

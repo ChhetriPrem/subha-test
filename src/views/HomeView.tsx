@@ -50,10 +50,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
       const res = await fetch(`/api/streams?${query.toString()}`);
       if (res.ok) {
         const data = await res.json();
-        setStreams(data);
+        setStreams(data || []);
       }
     } catch (e) {
-      console.error('Failed to load streams:', e);
+      console.warn('Network issue loading streams:', e);
     } finally {
       if (!isBackground) setIsLoading(false);
     }

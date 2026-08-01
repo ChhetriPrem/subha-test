@@ -69,12 +69,37 @@ class SFUMediaManager {
   }
 
   /**
+   * Upgrade existing peer connections when local viewer becomes stage publisher
+   */
+  public async upgradeToPublisher() {
+    if (!this.localStream) return;
+    for (const [, pc] of this.peerConnections.entries()) {
+      if (pc.connectionState === 'closed') continue;
+      const senders = pc.getSenders();
+      this.localStream.getTracks().forEach((track) => {
+        const alreadySending = senders.find((s) => s.track?.kind === track.kind);
+        if (alreadySending) {
+          alreadySending.replaceTrack(track);
+        } else {
+          try {
+            pc.addTrack(track, this.localStream!);
+          } catch (e) {
+            console.warn('Track add error on upgrade:', e);
+          }
+        }
+      });
+    }
+  }
+
+  /**
    * Called when user takes a seat -> Become Publisher
    */
   public async publishSeatMedia(seatNumber: number, slotType: 'video' | 'audio' = 'video'): Promise<MediaStream | null> {
     this.currentSeatNumber = seatNumber;
     const isVideo = slotType === 'video';
     const stream = await this.getLocalStream(isVideo, true);
+
+    await this.upgradeToPublisher();
 
     // 1. Try LiveKit Cloud publish if LiveKit Room is active
     if (this.livekitRoom && this.livekitRoom.state === 'connected') {
@@ -211,8 +236,21 @@ class SFUMediaManager {
         });
       }
     } else if (signalType === 'announce-publisher') {
-      // Create WebRTC PeerConnection as subscriber to receive publisher stream
-      await this.createPeerConnection(fromUserId, seatNumber, true);
+      const existingPc = this.peerConnections.get(fromUserId);
+      if (existingPc && existingPc.connectionState !== 'closed') {
+        if (this.localStream) {
+          const senders = existingPc.getSenders();
+          this.localStream.getTracks().forEach((track) => {
+            if (!senders.find((s) => s.track?.kind === track.kind)) {
+              try {
+                existingPc.addTrack(track, this.localStream!);
+              } catch (e) {}
+            }
+          });
+        }
+      } else {
+        await this.createPeerConnection(fromUserId, seatNumber, true);
+      }
     } else if (signalType === 'offer') {
       let pc = this.peerConnections.get(fromUserId);
       if (!pc) {
@@ -302,6 +340,27 @@ class SFUMediaManager {
         console.warn('Transceiver setup note:', e);
       }
     }
+
+    pc.onnegotiationneeded = async () => {
+      try {
+        this.makingOffer.set(remoteUserId, true);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        if (this.socketSend) {
+          this.socketSend({
+            type: 'rtc-signal',
+            signalType: 'offer',
+            targetUserId: remoteUserId,
+            seatNumber: this.currentSeatNumber,
+            offer,
+          });
+        }
+      } catch (err) {
+        console.warn('Negotiation error:', err);
+      } finally {
+        this.makingOffer.set(remoteUserId, false);
+      }
+    };
 
     pc.onicecandidate = (event) => {
       if (event.candidate && this.socketSend) {
