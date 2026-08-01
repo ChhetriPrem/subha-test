@@ -139,7 +139,19 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 break;
 
               case 'chat-message':
-                setChatMessages((prev) => [...prev.slice(-100), data.message]);
+                setChatMessages((prev) => {
+                  if (!data.message) return prev;
+                  if (prev.some((m) => m.id === data.message.id)) return prev;
+                  const optIndex = prev.findIndex(
+                    (m) => m.id.startsWith('opt_') && m.sender.id === data.message.sender.id && m.content === data.message.content
+                  );
+                  if (optIndex !== -1) {
+                    const next = [...prev];
+                    next[optIndex] = data.message;
+                    return next;
+                  }
+                  return [...prev.slice(-100), data.message];
+                });
                 break;
 
               case 'system-message':
@@ -162,7 +174,18 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 }, 4000);
 
                 if (data.message) {
-                  setChatMessages((prev) => [...prev.slice(-100), data.message]);
+                  setChatMessages((prev) => {
+                    if (prev.some((m) => m.id === data.message.id)) return prev;
+                    const optIndex = prev.findIndex(
+                      (m) => m.id.startsWith('opt_') && m.sender.id === data.message.sender.id && m.content === data.message.content
+                    );
+                    if (optIndex !== -1) {
+                      const next = [...prev];
+                      next[optIndex] = data.message;
+                      return next;
+                    }
+                    return [...prev.slice(-100), data.message];
+                  });
                 }
                 break;
               }

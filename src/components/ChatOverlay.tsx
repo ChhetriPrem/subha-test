@@ -98,7 +98,7 @@ export const ChatOverlay: React.FC<ChatOverlayProps> = ({
       </div>
 
       {/* Auto-scrolling Messages Box (Transparent Glassy Overlay) */}
-      <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 no-scrollbar text-xs">
+      <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 no-scrollbar text-xs flex flex-col items-start">
         {messages.length === 0 ? (
           <div className={`py-3 text-center text-slate-300 bg-black/30 border border-white/10 rounded-2xl p-2.5 backdrop-blur-md transition-all duration-700 ${
             showWelcome ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none hidden'
