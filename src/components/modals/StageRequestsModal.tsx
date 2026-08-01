@@ -25,7 +25,7 @@ export const StageRequestsModal: React.FC<StageRequestsModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-md p-0 sm:p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-md p-0 sm:p-4 animate-in fade-in duration-200 pointer-events-auto">
       <div className="w-full max-w-md bg-[#08080c] border border-white/10 rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl space-y-4 text-white">
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-white/10 pb-3">

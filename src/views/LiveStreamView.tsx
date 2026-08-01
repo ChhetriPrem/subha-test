@@ -529,7 +529,7 @@ export const LiveStreamView: React.FC<LiveStreamViewProps> = ({
       {/* BOTTOM CHAT & ROOM GAME TOOLBAR OVERLAY */}
       <div className="fixed bottom-0 left-0 right-0 z-30 p-2.5 sm:p-3 space-y-2 bg-gradient-to-t from-black/95 via-black/60 to-transparent pointer-events-auto">
         {/* Live Audience Chat Box */}
-        <div className="h-28 sm:h-36">
+        <div className="h-[42vh] sm:h-[48vh] flex flex-col">
           <ChatOverlay
             messages={chatMessages}
             pinnedMessage={room.pinnedMessage}
@@ -601,26 +601,6 @@ export const LiveStreamView: React.FC<LiveStreamViewProps> = ({
                 </div>
               )}
             </div>
-
-            {/* Stage Seat Queue Manager Button */}
-            {room.mode !== 'solo' && (
-              <button
-                onClick={() => setIsStageQueueModalOpen(true)}
-                className={`p-2 rounded-full border transition-all relative ${
-                  stageRequests.length > 0 && isHost
-                    ? 'bg-amber-500 text-black border-amber-300 animate-pulse'
-                    : 'bg-black/50 hover:bg-black/70 text-slate-200 border-white/15'
-                }`}
-                title="Stage Seats & Queue"
-              >
-                <Users className="w-4 h-4 text-sky-400" />
-                {stageRequests.length > 0 && isHost && (
-                  <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center border border-black">
-                    {stageRequests.length}
-                  </span>
-                )}
-              </button>
-            )}
 
             {/* Mic Toggle Button */}
             <button

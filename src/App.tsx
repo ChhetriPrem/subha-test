@@ -94,7 +94,7 @@ export function MainApp() {
   return (
     <div className="bg-[#0a0518] min-h-screen text-white font-sans selection:bg-pink-500 selection:text-white">
       {/* Phone Canvas Container Frame */}
-      <div className="max-w-md mx-auto min-h-screen relative bg-[#0f0826] shadow-2xl border-x border-white/5 overflow-x-hidden">
+      <div className="max-w-md mx-auto min-h-screen relative bg-[#0f0826] shadow-2xl border-x border-white/5 overflow-x-hidden transform-gpu">
         {/* Top Sticky Header (shown on Home view) */}
         {activeTab === 'home' && !selectedRoom && (
           <Header
