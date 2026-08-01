@@ -19,7 +19,15 @@ export const ChatOverlay: React.FC<ChatOverlayProps> = ({
   const { user } = useAuth();
   const [inputText, setInputText] = useState('');
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(true);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowWelcome(false);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (!isCollapsed) {
@@ -66,8 +74,10 @@ export const ChatOverlay: React.FC<ChatOverlayProps> = ({
     <div className="flex flex-col h-full justify-between pointer-events-auto bg-transparent overflow-hidden">
       {/* Header Bar with Collapse Toggle & Pinned Message */}
       <div className="flex items-center justify-between mb-1 text-[11px]">
-        {pinnedMessage ? (
-          <div className="flex-1 bg-gradient-to-r from-purple-950/70 to-pink-950/70 border border-pink-500/30 backdrop-blur-md rounded-xl p-1 px-2.5 mr-2 flex items-center space-x-2 text-pink-200 shadow-md truncate">
+        {pinnedMessage && (showWelcome || !pinnedMessage.toLowerCase().includes('welcome')) ? (
+          <div className={`flex-1 bg-gradient-to-r from-purple-950/70 to-pink-950/70 border border-pink-500/30 backdrop-blur-md rounded-xl p-1 px-2.5 mr-2 flex items-center space-x-2 text-pink-200 shadow-md truncate transition-all duration-700 ${
+            showWelcome ? 'opacity-100 scale-100' : 'opacity-0 scale-95 max-h-0 overflow-hidden hidden'
+          }`}>
             <Pin className="w-3 h-3 text-pink-400 shrink-0 animate-pulse" />
             <span className="font-semibold truncate">{pinnedMessage}</span>
           </div>
@@ -79,7 +89,7 @@ export const ChatOverlay: React.FC<ChatOverlayProps> = ({
 
         <button
           onClick={() => setIsCollapsed(true)}
-          className="bg-black/40 hover:bg-black/60 border border-white/20 backdrop-blur-md text-slate-300 hover:text-white p-1 rounded-full flex items-center space-x-1 text-[10px] px-2 font-bold transition-all shadow-md shrink-0"
+          className="bg-black/40 hover:bg-black/60 border border-white/20 backdrop-blur-md text-slate-300 hover:text-white p-1 rounded-full flex items-center space-x-1 text-[10px] px-2 font-bold transition-all shadow-md shrink-0 ml-auto"
           title="Collapse Chat"
         >
           <span>Hide Chat</span>
@@ -90,7 +100,9 @@ export const ChatOverlay: React.FC<ChatOverlayProps> = ({
       {/* Auto-scrolling Messages Box (Transparent Glassy Overlay) */}
       <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 no-scrollbar text-xs">
         {messages.length === 0 ? (
-          <div className="py-3 text-center text-slate-300 bg-black/30 border border-white/10 rounded-2xl p-2.5 backdrop-blur-md">
+          <div className={`py-3 text-center text-slate-300 bg-black/30 border border-white/10 rounded-2xl p-2.5 backdrop-blur-md transition-all duration-700 ${
+            showWelcome ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none hidden'
+          }`}>
             <p className="font-extrabold text-xs text-pink-300 mb-0.5">Welcome to the LIVE! 👋</p>
             <p className="text-[10px] text-slate-300">Say hi to the host or send a gift!</p>
           </div>

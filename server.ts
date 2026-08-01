@@ -249,11 +249,46 @@ function checkIsUserOnline(userId: string): boolean {
   return false;
 }
 
-// In-Memory Data Store for Server State
+// In-Memory & Disk Persisted Data Store for Server State
+const DATA_FILE = path.join(process.cwd(), 'data_store.json');
+
 let roomsStore: StreamRoom[] = [...INITIAL_STREAMS];
 let currentUserStore: User = { ...DEFAULT_USER };
 let reelsStore: any[] = [];
 let notificationsStore: any[] = [];
+
+function loadPersistedData() {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const raw = fs.readFileSync(DATA_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data.directMessagesStore)) directMessagesStore = data.directMessagesStore;
+      if (Array.isArray(data.followsStore)) followsStore = data.followsStore;
+      if (data.currentUserStore && data.currentUserStore.id) currentUserStore = data.currentUserStore;
+      if (data.ALL_SAMPLE_USERS) Object.assign(ALL_SAMPLE_USERS, data.ALL_SAMPLE_USERS);
+      console.log('✅ Local disk persistent data loaded successfully.');
+    }
+  } catch (err) {
+    console.warn('Could not load data_store.json:', err);
+  }
+}
+
+function savePersistedData() {
+  try {
+    const payload = {
+      directMessagesStore,
+      followsStore,
+      currentUserStore,
+      ALL_SAMPLE_USERS,
+    };
+    fs.writeFileSync(DATA_FILE, JSON.stringify(payload, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Could not save data_store.json:', err);
+  }
+}
+
+// Initialize persisted store
+loadPersistedData();
 
 // Active WebSocket Room connections
 interface ClientConnection {
@@ -346,7 +381,7 @@ wss.on('connection', (ws: WebSocket) => {
             timestamp,
           };
 
-          // In-memory store
+          // In-memory & disk store
           directMessagesStore.push({
             id: msgId,
             senderId,
@@ -354,6 +389,7 @@ wss.on('connection', (ws: WebSocket) => {
             encryptedContent,
             timestamp,
           });
+          savePersistedData();
 
           // Supabase persistence
           if (supabaseAdmin) {
@@ -628,6 +664,8 @@ wss.on('connection', (ws: WebSocket) => {
           if (room) {
             room.host.diamonds += Math.floor(totalCoins * 0.7);
           }
+
+          savePersistedData();
 
           const giftMsg: ChatMessage = {
             id: `gift_msg_${Date.now()}`,
@@ -1097,6 +1135,7 @@ app.post('/api/user/follow', (req, res) => {
   }
 
   // Sync with Supabase follows table if available
+  savePersistedData();
   if (supabaseAdmin) {
     (async () => {
       try {
@@ -1131,6 +1170,7 @@ app.post('/api/wallet/buy-coins', (req, res) => {
   const { amount } = req.body;
   if (typeof amount === 'number' && amount > 0) {
     currentUserStore.coins += amount;
+    savePersistedData();
   }
   res.json({ coins: currentUserStore.coins, diamonds: currentUserStore.diamonds });
 });
@@ -1304,6 +1344,7 @@ app.post('/api/direct-messages', (req, res) => {
   };
 
   directMessagesStore.push(newMsg);
+  savePersistedData();
 
   if (supabaseAdmin) {
     (async () => {

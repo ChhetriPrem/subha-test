@@ -126,6 +126,32 @@ const FullBleedMultiVideoStream: React.FC<{
   );
 };
 
+const SingleAudioPlayer: React.FC<{ stream: MediaStream; isDeafened: boolean }> = ({ stream, isDeafened }) => {
+  const ref = React.useRef<HTMLAudioElement>(null);
+  React.useEffect(() => {
+    if (ref.current && stream) {
+      ref.current.srcObject = stream;
+      ref.current.play().catch(() => {});
+    }
+  }, [stream]);
+
+  return <audio ref={ref} autoPlay playsInline muted={isDeafened} />;
+};
+
+const RemoteAudioPlayers: React.FC<{
+  remoteMediaStreams: Map<string, any>;
+  isDeafened: boolean;
+}> = ({ remoteMediaStreams, isDeafened }) => {
+  return (
+    <div className="hidden">
+      {Array.from(remoteMediaStreams.entries()).map(([peerId, peerStream]) => {
+        if (!peerStream?.stream) return null;
+        return <SingleAudioPlayer key={peerId} stream={peerStream.stream} isDeafened={isDeafened} />;
+      })}
+    </div>
+  );
+};
+
 export const LiveStreamView: React.FC<LiveStreamViewProps> = ({
   room,
   onClose,
@@ -287,6 +313,9 @@ export const LiveStreamView: React.FC<LiveStreamViewProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-[#050507] text-white flex flex-col justify-between overflow-hidden w-screen h-screen pointer-events-none">
+      {/* Remote Audio Players Layer for two-way audio */}
+      <RemoteAudioPlayers remoteMediaStreams={remoteMediaStreams} isDeafened={isDeafened} />
+
       {/* Background Video Stream Layer (Full Bleed Single / Dual Video Split View) */}
       <div className="fixed inset-0 z-0 bg-[#050507] w-full h-full">
         <FullBleedMultiVideoStream
