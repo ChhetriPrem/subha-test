@@ -63,7 +63,7 @@ export const ChatOverlay: React.FC<ChatOverlayProps> = ({
   }
 
   return (
-    <div className="flex flex-col h-[46vh] max-h-[50vh] justify-between pointer-events-auto bg-transparent">
+    <div className="flex flex-col h-full justify-between pointer-events-auto bg-transparent overflow-hidden">
       {/* Header Bar with Collapse Toggle & Pinned Message */}
       <div className="flex items-center justify-between mb-1 text-[11px]">
         {pinnedMessage ? (

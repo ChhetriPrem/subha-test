@@ -159,6 +159,7 @@ export const LiveStreamView: React.FC<LiveStreamViewProps> = ({
     guestSeats,
     stageRequests,
     remoteMediaStreams,
+    localMediaStream,
   } = useSocket();
 
   const handleGuardedTakeSeat = (seatNumber: number, slotType?: 'video' | 'audio') => {
@@ -186,13 +187,15 @@ export const LiveStreamView: React.FC<LiveStreamViewProps> = ({
     sendVirtualGift(gift, count);
   };
 
-  const handleGuardedRequestSlot = (slotType: 'video' | 'audio') => {
+  const handleGuardedRequestSlot = (slotType: 'video' | 'audio' = 'audio') => {
     if (!isAuthenticated) {
       onOpenAuth?.();
       return;
     }
     const finalType = room.type === 'audio' ? 'audio' : slotType;
     requestStageSlot(finalType);
+    setToastMessage('✋ Stage request sent to host! Waiting for approval.');
+    setTimeout(() => setToastMessage(null), 4000);
   };
 
   const [isGiftDrawerOpen, setIsGiftDrawerOpen] = useState(false);
@@ -251,7 +254,7 @@ export const LiveStreamView: React.FC<LiveStreamViewProps> = ({
 
     // Check local user stream if video is turned on
     if (mySeat?.isVideoOn) {
-      const local = sfuManager.getLocalMediaStream();
+      const local = localMediaStream || sfuManager.getLocalMediaStream();
       if (local && local.getVideoTracks().some((t) => t.readyState === 'live' && t.enabled)) {
         list.push({
           id: user.id,
@@ -280,7 +283,7 @@ export const LiveStreamView: React.FC<LiveStreamViewProps> = ({
     });
 
     return list;
-  }, [mySeat, guestSeats, remoteMediaStreams, user.id, user.name, user.avatar, room.host.id]);
+  }, [mySeat, guestSeats, remoteMediaStreams, localMediaStream, user.id, user.name, user.avatar, room.host.id]);
 
   return (
     <div className="fixed inset-0 z-50 bg-[#050507] text-white flex flex-col justify-between overflow-hidden w-screen h-screen pointer-events-none">
@@ -298,14 +301,14 @@ export const LiveStreamView: React.FC<LiveStreamViewProps> = ({
 
       {/* Stage Approval Toast Banner */}
       {toastMessage && (
-        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-40 bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 text-white font-black text-xs px-4 py-2 rounded-full shadow-2xl border border-emerald-300/40 flex items-center space-x-2 animate-in fade-in slide-in-from-top-4 duration-300 pointer-events-auto">
-          <Sparkles className="w-4 h-4 text-yellow-300 animate-spin" />
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-40 bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 text-white font-black text-xs px-4 py-2 rounded-full shadow-2xl border border-emerald-300/40 flex items-center space-x-2 animate-in fade-in slide-in-from-top-4 duration-300 pointer-events-auto max-w-[90vw] text-center">
+          <Sparkles className="w-4 h-4 text-yellow-300 animate-spin shrink-0" />
           <span>{toastMessage}</span>
         </div>
       )}
 
       {/* TOP HEADER OVERLAY */}
-      <div className="relative z-20 p-2.5 sm:p-3 flex flex-col space-y-2 bg-gradient-to-b from-black/80 via-black/30 to-transparent pointer-events-auto">
+      <div className="fixed top-0 left-0 right-0 z-30 p-2.5 sm:p-3 flex flex-col space-y-2 bg-gradient-to-b from-black/90 via-black/50 to-transparent pointer-events-auto">
         <div className="flex items-center justify-between">
           {/* Host Info Pill */}
           <div className="flex items-center space-x-2 bg-black/50 backdrop-blur-md p-1 pr-3 rounded-full border border-white/15 shadow-xl">
@@ -384,11 +387,15 @@ export const LiveStreamView: React.FC<LiveStreamViewProps> = ({
             {!isHost && !mySeat && (
               <button
                 onClick={() => handleGuardedRequestSlot('audio')}
-                className="px-3 py-1 bg-black/40 hover:bg-black/60 border border-white/20 backdrop-blur-md text-white rounded-full font-bold text-[11px] flex items-center space-x-1.5 shadow-md active:scale-95 transition-all"
-                title="Request Audio Join"
+                className={`px-3 py-1 border backdrop-blur-md text-white rounded-full font-extrabold text-[11px] flex items-center space-x-1.5 shadow-lg active:scale-95 transition-all ${
+                  myRequestPending
+                    ? 'bg-amber-500/30 border-amber-400/50 text-amber-200 animate-pulse'
+                    : 'bg-emerald-600/80 hover:bg-emerald-600 border-emerald-400 shadow-emerald-600/30'
+                }`}
+                title="Request Stage Audio Slot"
               >
-                <Mic className="w-3.5 h-3.5 text-emerald-400" />
-                <span>{myRequestPending ? 'Pending...' : 'Request Audio'}</span>
+                <Mic className="w-3.5 h-3.5 text-emerald-300" />
+                <span>{myRequestPending ? 'Pending...' : 'Request Stage'}</span>
               </button>
             )}
 
@@ -457,7 +464,7 @@ export const LiveStreamView: React.FC<LiveStreamViewProps> = ({
 
       {/* FLOATING GUEST THUMBNAIL BUBBLES OVERLAY */}
       {room.mode !== 'solo' && showStageGrid && guestSeats.length > 0 && (
-        <div className="absolute right-3 top-24 z-20 flex flex-col space-y-2 pointer-events-auto max-h-[45vh] overflow-y-auto no-scrollbar">
+        <div className="fixed right-3 top-28 z-20 flex flex-col space-y-2 pointer-events-auto max-h-[40vh] overflow-y-auto no-scrollbar">
           {guestSeats.map((guest) => {
             const isGuestMe = guest.user.id === user.id;
             return (
@@ -520,9 +527,9 @@ export const LiveStreamView: React.FC<LiveStreamViewProps> = ({
       )}
 
       {/* BOTTOM CHAT & ROOM GAME TOOLBAR OVERLAY */}
-      <div className="relative z-20 p-2.5 sm:p-3 space-y-2 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-auto">
+      <div className="fixed bottom-0 left-0 right-0 z-30 p-2.5 sm:p-3 space-y-2 bg-gradient-to-t from-black/95 via-black/60 to-transparent pointer-events-auto">
         {/* Live Audience Chat Box */}
-        <div className="h-36 sm:h-40">
+        <div className="h-28 sm:h-36">
           <ChatOverlay
             messages={chatMessages}
             pinnedMessage={room.pinnedMessage}
@@ -621,7 +628,7 @@ export const LiveStreamView: React.FC<LiveStreamViewProps> = ({
                 if (mySeat) {
                   toggleMic(mySeat.seatNumber);
                 } else if (!isHost) {
-                  setIsStageQueueModalOpen(true);
+                  handleGuardedRequestSlot('audio');
                 }
               }}
               className={`p-2 rounded-full transition-all border ${

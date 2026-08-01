@@ -39,6 +39,7 @@ interface SocketContextType {
   guestSeats: RoomGuest[];
   stageRequests: any[];
   remoteMediaStreams: Map<string, PeerMediaStream>;
+  localMediaStream: MediaStream | null;
 }
 
 const SocketContext = createContext<SocketContextType | undefined>(undefined);
@@ -60,6 +61,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [guestSeats, setGuestSeats] = useState<RoomGuest[]>([]);
   const [stageRequests, setStageRequests] = useState<any[]>([]);
   const [remoteMediaStreams, setRemoteMediaStreams] = useState<Map<string, PeerMediaStream>>(new Map());
+  const [localMediaStream, setLocalMediaStream] = useState<MediaStream | null>(null);
   const [isStreamEnded, setIsStreamEnded] = useState(false);
   const [streamEndReason, setStreamEndReason] = useState('');
   const [incomingDirectMessage, setIncomingDirectMessage] = useState<any>(null);
@@ -68,8 +70,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   useEffect(() => {
     sfuManager.initSocket((payload) => safeSend(payload), user.id);
-    const unsubscribe = sfuManager.subscribeStreams((map) => {
+    const unsubscribe = sfuManager.subscribeStreams((map, local) => {
       setRemoteMediaStreams(map);
+      setLocalMediaStream(local);
     });
     return () => {
       unsubscribe();
@@ -525,6 +528,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     guestSeats,
     stageRequests,
     remoteMediaStreams,
+    localMediaStream,
   }), [
     isConnected,
     activeRoomId,
@@ -541,6 +545,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     guestSeats,
     stageRequests,
     remoteMediaStreams,
+    localMediaStream,
   ]);
 
   return (

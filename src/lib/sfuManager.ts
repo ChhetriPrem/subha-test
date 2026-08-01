@@ -8,7 +8,7 @@ export interface PeerMediaStream {
   isMicOn: boolean;
 }
 
-type StreamCallback = (streams: Map<string, PeerMediaStream>) => void;
+type StreamCallback = (streams: Map<string, PeerMediaStream>, localStream: MediaStream | null) => void;
 
 class SFUMediaManager {
   private livekitRoom: Room | null = null;
@@ -29,7 +29,7 @@ class SFUMediaManager {
 
   public subscribeStreams(callback: StreamCallback) {
     this.listeners.add(callback);
-    callback(new Map(this.remoteStreams));
+    callback(new Map(this.remoteStreams), this.localStream);
     return () => {
       this.listeners.delete(callback);
     };
@@ -37,7 +37,7 @@ class SFUMediaManager {
 
   private notifyListeners() {
     const copy = new Map(this.remoteStreams);
-    this.listeners.forEach((cb) => cb(copy));
+    this.listeners.forEach((cb) => cb(copy, this.localStream));
   }
 
   public getLocalMediaStream(): MediaStream | null {
@@ -54,6 +54,7 @@ class SFUMediaManager {
       }
       if (!video && !audio) {
         this.localStream = null;
+        this.notifyListeners();
         return null;
       }
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -61,9 +62,11 @@ class SFUMediaManager {
         audio: audio,
       });
       this.localStream = stream;
+      this.notifyListeners();
       return stream;
     } catch (err) {
       console.warn('Failed to access camera/mic media device:', err);
+      this.notifyListeners();
       return null;
     }
   }
