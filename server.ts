@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
 import { VIRTUAL_GIFTS } from './src/data/gifts';
 import { StreamRoom, User, ChatMessage, VirtualGift, RoomGuest } from './src/types';
+import { encryptMessage } from './src/lib/crypto';
 
 // Supabase Admin / Service Client
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
@@ -84,18 +85,175 @@ function getGeminiClient(): GoogleGenAI | null {
   return aiClient;
 }
 
-// In-Memory Data Store for Server State
-let roomsStore: StreamRoom[] = [...INITIAL_STREAMS];
-let currentUserStore: User = { ...DEFAULT_USER };
-let reelsStore: any[] = [];
-let notificationsStore: any[] = [];
+// Sample User Directory for Messaging & Following
+const ALL_SAMPLE_USERS: Record<string, User> = {
+  usr_maya: {
+    id: 'usr_maya',
+    name: 'Maya Lin 🎤',
+    handle: 'maya_official',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400',
+    country: 'India',
+    countryFlag: '🇮🇳',
+    level: 12,
+    vipLevel: 2,
+    svip: true,
+    isVerified: true,
+    bio: 'Singer & Songwriter • Live Lounge Host 🎶',
+    followers: 1250,
+    following: 45,
+    friends: 30,
+    visitors: 820,
+    coins: 10000,
+    diamonds: 500,
+  },
+  usr_alex: {
+    id: 'usr_alex',
+    name: 'DJ Alex 🎧',
+    handle: 'djalex_beats',
+    avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&q=80&w=400',
+    country: 'UK',
+    countryFlag: '🇬🇧',
+    level: 15,
+    vipLevel: 3,
+    svip: true,
+    isVerified: true,
+    bio: 'Electronic Music Producer & Night DJ 🎧',
+    followers: 3400,
+    following: 88,
+    friends: 70,
+    visitors: 1900,
+    coins: 18000,
+    diamonds: 1200,
+  },
+  usr_priya: {
+    id: 'usr_priya',
+    name: 'Priya Sharma 💃',
+    handle: 'priya_dance',
+    avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&q=80&w=400',
+    country: 'India',
+    countryFlag: '🇮🇳',
+    level: 8,
+    vipLevel: 1,
+    svip: false,
+    isVerified: true,
+    bio: 'Choreographer & Fitness Streamer 💃',
+    followers: 890,
+    following: 110,
+    friends: 50,
+    visitors: 450,
+    coins: 4200,
+    diamonds: 210,
+  },
+  usr_anya: {
+    id: 'usr_anya',
+    name: 'Anya Vance 🎮',
+    handle: 'anya_gamer',
+    avatar: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&q=80&w=400',
+    country: 'USA',
+    countryFlag: '🇺🇸',
+    level: 9,
+    vipLevel: 1,
+    svip: false,
+    isVerified: true,
+    bio: 'Pro Mobile Esports Streamer 🕹️',
+    followers: 2100,
+    following: 200,
+    friends: 45,
+    visitors: 980,
+    coins: 6000,
+    diamonds: 300,
+  },
+  usr_rohan: {
+    id: 'usr_rohan',
+    name: 'Rohan Verma 🎸',
+    handle: 'rohan_guitars',
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=400',
+    country: 'India',
+    countryFlag: '🇮🇳',
+    level: 5,
+    vipLevel: 0,
+    svip: false,
+    isVerified: false,
+    bio: 'Acoustic Cover Singer & Jammer 🎸',
+    followers: 430,
+    following: 150,
+    friends: 20,
+    visitors: 210,
+    coins: 2000,
+    diamonds: 50,
+  },
+};
+
+// Follow relationships: { followerId, followingId }
+let followsStore: Array<{ followerId: string; followingId: string }> = [
+  { followerId: 'usr_maya', followingId: DEFAULT_USER.id }, // Maya follows currentUser -> MUTUAL
+  { followerId: 'usr_alex', followingId: DEFAULT_USER.id }, // Alex follows currentUser -> MUTUAL
+  { followerId: DEFAULT_USER.id, followingId: 'usr_maya' },
+  { followerId: DEFAULT_USER.id, followingId: 'usr_alex' },
+  { followerId: DEFAULT_USER.id, followingId: 'usr_priya' }, // Single-way follow
+  { followerId: DEFAULT_USER.id, followingId: 'usr_anya' },  // Single-way follow
+  { followerId: 'usr_rohan', followingId: DEFAULT_USER.id }, // Sent message request to currentUser
+];
+
+// Pre-seeded encrypted direct messages
 let directMessagesStore: Array<{
   id: string;
   senderId: string;
   recipientId: string;
   encryptedContent: string;
   timestamp: string;
-}> = [];
+}> = [
+  {
+    id: 'dm_1',
+    senderId: 'usr_maya',
+    recipientId: DEFAULT_USER.id,
+    encryptedContent: encryptMessage('Hey! Thanks for following my stream! 🎤'),
+    timestamp: '10:42 AM',
+  },
+  {
+    id: 'dm_2',
+    senderId: 'usr_alex',
+    recipientId: DEFAULT_USER.id,
+    encryptedContent: encryptMessage('Dropped a new synth beat track today 🔥'),
+    timestamp: 'Yesterday',
+  },
+  {
+    id: 'dm_3',
+    senderId: 'usr_priya',
+    recipientId: DEFAULT_USER.id,
+    encryptedContent: encryptMessage('Let us collaborate on the next dance stage!'),
+    timestamp: '2 days ago',
+  },
+  {
+    id: 'dm_4',
+    senderId: 'usr_rohan',
+    recipientId: DEFAULT_USER.id,
+    encryptedContent: encryptMessage('Hey! Would love to play acoustic guitar on your room stream! 🎸'),
+    timestamp: '3 days ago',
+  },
+];
+
+// Helper to check mutual follow status
+function checkIsMutualFollow(userA: string, userB: string): boolean {
+  const aFollowsB = followsStore.some((f) => f.followerId === userA && f.followingId === userB);
+  const bFollowsA = followsStore.some((f) => f.followerId === userB && f.followingId === userA);
+  return aFollowsB && bFollowsA;
+}
+
+// Helper to check live online status
+function checkIsUserOnline(userId: string): boolean {
+  if (['usr_maya', 'usr_alex', 'usr_priya'].includes(userId)) return true;
+  for (const client of activeClients) {
+    if (client.userId === userId) return true;
+  }
+  return false;
+}
+
+// In-Memory Data Store for Server State
+let roomsStore: StreamRoom[] = [...INITIAL_STREAMS];
+let currentUserStore: User = { ...DEFAULT_USER };
+let reelsStore: any[] = [];
+let notificationsStore: any[] = [];
 
 // Active WebSocket Room connections
 interface ClientConnection {
@@ -694,6 +852,91 @@ app.get('/api/user/profile', (_req, res) => {
   res.json(currentUserStore);
 });
 
+// Follow System REST Endpoints
+app.get('/api/user/following', (req, res) => {
+  const currentUserId = (req.query.userId as string) || currentUserStore.id;
+  const followingEntries = followsStore.filter((f) => f.followerId === currentUserId);
+
+  const result = followingEntries.map((f) => {
+    const targetUser = ALL_SAMPLE_USERS[f.followingId] || {
+      id: f.followingId,
+      name: `User ${f.followingId}`,
+      handle: `user_${f.followingId}`,
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400',
+      bio: 'VibeLive Member',
+      country: 'India',
+      countryFlag: '🇮🇳'
+    };
+
+    return {
+      id: targetUser.id,
+      name: targetUser.name,
+      handle: targetUser.handle,
+      avatar: targetUser.avatar,
+      bio: targetUser.bio,
+      country: targetUser.country,
+      countryFlag: targetUser.countryFlag,
+      isOnline: checkIsUserOnline(targetUser.id),
+      isMutual: checkIsMutualFollow(currentUserId, targetUser.id),
+    };
+  });
+
+  res.json(result);
+});
+
+app.post('/api/user/follow', (req, res) => {
+  const { targetUserId, followerId } = req.body;
+  const currentUserId = followerId || currentUserStore.id;
+
+  if (!targetUserId) {
+    return res.status(400).json({ error: 'targetUserId is required' });
+  }
+
+  const existingIdx = followsStore.findIndex(
+    (f) => f.followerId === currentUserId && f.followingId === targetUserId
+  );
+
+  let isFollowing = false;
+  if (existingIdx >= 0) {
+    // Unfollow
+    followsStore.splice(existingIdx, 1);
+    isFollowing = false;
+    if (currentUserStore.following > 0) currentUserStore.following -= 1;
+  } else {
+    // Follow
+    followsStore.push({ followerId: currentUserId, followingId: targetUserId });
+    isFollowing = true;
+    currentUserStore.following += 1;
+  }
+
+  // Sync with Supabase follows table if available
+  if (supabaseAdmin) {
+    (async () => {
+      try {
+        if (isFollowing) {
+          await supabaseAdmin.from('follows').insert({ follower_id: currentUserId, following_id: targetUserId });
+        } else {
+          await supabaseAdmin.from('follows').delete().match({ follower_id: currentUserId, following_id: targetUserId });
+        }
+      } catch (e) {}
+    })();
+  }
+
+  const isMutual = checkIsMutualFollow(currentUserId, targetUserId);
+
+  res.json({
+    success: true,
+    isFollowing,
+    isMutual,
+    followingCount: currentUserStore.following,
+  });
+});
+
+app.get('/api/users/online', (_req, res) => {
+  const onlineIds = Object.keys(ALL_SAMPLE_USERS).filter((id) => checkIsUserOnline(id));
+  res.json({ onlineUserIds: onlineIds });
+});
+
 app.post('/api/wallet/buy-coins', (req, res) => {
   const { amount } = req.body;
   if (typeof amount === 'number' && amount > 0) {
@@ -719,6 +962,72 @@ app.get('/api/reels', (_req, res) => {
 });
 
 // Direct Messages REST API (Encrypted payloads stored in DB)
+app.get('/api/direct-messages/conversations', (req, res) => {
+  const currentUserId = (req.query.userId as string) || currentUserStore.id;
+
+  const involvedUserIds = new Set<string>();
+
+  followsStore.forEach((f) => {
+    if (f.followerId === currentUserId) involvedUserIds.add(f.followingId);
+    if (f.followingId === currentUserId) involvedUserIds.add(f.followerId);
+  });
+
+  directMessagesStore.forEach((m) => {
+    if (m.senderId === currentUserId) involvedUserIds.add(m.recipientId);
+    if (m.recipientId === currentUserId) involvedUserIds.add(m.senderId);
+  });
+
+  involvedUserIds.delete(currentUserId);
+
+  const primary: any[] = [];
+  const requests: any[] = [];
+
+  involvedUserIds.forEach((otherId) => {
+    const userObj = ALL_SAMPLE_USERS[otherId] || {
+      id: otherId,
+      name: `User ${otherId.slice(0, 6)}`,
+      handle: `user_${otherId.slice(0, 6)}`,
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400',
+      bio: '',
+    };
+
+    const msgs = directMessagesStore.filter(
+      (m) =>
+        (m.senderId === currentUserId && m.recipientId === otherId) ||
+        (m.senderId === otherId && m.recipientId === currentUserId)
+    );
+
+    const lastMsg = msgs[msgs.length - 1];
+    const isMutual = checkIsMutualFollow(currentUserId, otherId);
+    const isOnline = checkIsUserOnline(otherId);
+
+    const convItem = {
+      id: otherId,
+      user: {
+        id: userObj.id,
+        name: userObj.name,
+        handle: userObj.handle,
+        avatar: userObj.avatar,
+        bio: userObj.bio || '',
+      },
+      lastMsgEncrypted: lastMsg ? lastMsg.encryptedContent : encryptMessage('No messages yet'),
+      time: lastMsg ? lastMsg.timestamp : 'New',
+      unread: 0,
+      isMutual,
+      isOnline,
+      messages: msgs,
+    };
+
+    if (isMutual) {
+      primary.push(convItem);
+    } else {
+      requests.push(convItem);
+    }
+  });
+
+  res.json({ primary, requests });
+});
+
 app.get('/api/direct-messages/:userId', (req, res) => {
   const { userId } = req.params;
   const currentUserId = (req.query.currentUserId as string) || currentUserStore.id;

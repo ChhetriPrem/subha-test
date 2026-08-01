@@ -280,16 +280,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Initial default followed profiles
+  useEffect(() => {
+    const currentUserId = profile?.id || 'usr_maya';
+    fetch(`/api/user/following?userId=${currentUserId}`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setFollowingIds(new Set(data.map((item: any) => item.id)));
+        } else {
+          setFollowingIds(new Set(['usr_maya', 'usr_alex', 'usr_priya', 'usr_anya']));
+        }
+      })
+      .catch(() => {
+        setFollowingIds(new Set(['usr_maya', 'usr_alex', 'usr_priya', 'usr_anya']));
+      });
+  }, [profile?.id]);
+
   const toggleFollow = (targetUserId: string) => {
     setFollowingIds((prev) => {
       const next = new Set(prev);
-      if (next.has(targetUserId)) {
-        next.delete(targetUserId);
-      } else {
+      const isAdding = !next.has(targetUserId);
+      if (isAdding) {
         next.add(targetUserId);
+      } else {
+        next.delete(targetUserId);
       }
+
+      // Update following count in profile
+      setProfile((p) => {
+        if (!p) return p;
+        const currentCount = p.following || 0;
+        return {
+          ...p,
+          following: isAdding ? currentCount + 1 : Math.max(0, currentCount - 1),
+        };
+      });
+
       return next;
     });
+
+    // Call server REST API
+    fetch('/api/user/follow', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        targetUserId,
+        followerId: profile?.id || 'usr_maya',
+      }),
+    }).catch(() => {});
   };
 
   // Compute standard user object from profile

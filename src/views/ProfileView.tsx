@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { FollowingModal } from '../components/modals/FollowingModal';
 import {
   ChevronLeft,
   Copy,
@@ -75,6 +76,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 }) => {
   const { user, isAuthenticated, signOut, followingIds, toggleFollow } = useAuth();
   const [copiedId, setCopiedId] = React.useState(false);
+  const [isFollowingModalOpen, setIsFollowingModalOpen] = useState(false);
 
   const handleCopyId = () => {
     navigator.clipboard.writeText(user.id);
@@ -172,12 +174,21 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       <div className="grid grid-cols-4 gap-2 text-center bg-white/5 border border-white/10 p-3 rounded-2xl">
         <div>
           <span className="text-sm font-black text-white">{user.friends.toLocaleString()}</span>
-          <p className="text-[10px] text-gray-400 font-medium">Friend</p>
+          <p className="text-[10px] text-gray-400 font-medium">Friends</p>
         </div>
-        <div>
-          <span className="text-sm font-black text-white">{user.following.toLocaleString()}</span>
-          <p className="text-[10px] text-gray-400 font-medium">Following</p>
-        </div>
+        <button
+          onClick={() => setIsFollowingModalOpen(true)}
+          className="hover:bg-white/10 p-1 rounded-xl transition-all group border border-transparent hover:border-pink-500/30"
+          title="Open Following List"
+        >
+          <span className="text-sm font-black text-white group-hover:text-pink-400 transition-colors">
+            {user.following.toLocaleString()}
+          </span>
+          <p className="text-[10px] text-gray-400 group-hover:text-pink-300 font-medium transition-colors flex items-center justify-center space-x-0.5">
+            <span>Following</span>
+            <ChevronRight className="w-2.5 h-2.5 inline" />
+          </p>
+        </button>
         <div>
           <span className="text-sm font-black text-white">{user.followers.toLocaleString()}</span>
           <p className="text-[10px] text-gray-400 font-medium">Followers</p>
@@ -194,9 +205,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           <div className="flex items-center space-x-2">
             <Users className="w-4 h-4 text-pink-400" />
             <h3 className="text-xs font-black text-white">Profiles I Follow</h3>
-            <span className="bg-pink-500/20 text-pink-300 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-pink-500/30">
-              {FEATURED_FOLLOWED_PROFILES.length} Contacts
-            </span>
+            <button
+              onClick={() => setIsFollowingModalOpen(true)}
+              className="bg-pink-500/20 hover:bg-pink-500/30 text-pink-300 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-pink-500/30 transition-all flex items-center space-x-1"
+            >
+              <span>{FEATURED_FOLLOWED_PROFILES.length} Contacts</span>
+              <ChevronRight className="w-2.5 h-2.5" />
+            </button>
           </div>
 
           <div className="flex items-center space-x-1 text-[10px] font-bold text-emerald-400">
@@ -357,6 +372,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           );
         })}
       </div>
+
+      {/* Following List Modal */}
+      <FollowingModal
+        isOpen={isFollowingModalOpen}
+        onClose={() => setIsFollowingModalOpen(false)}
+        onOpenChatWithUser={(targetUser) => {
+          setIsFollowingModalOpen(false);
+          onOpenChatWithUser?.(targetUser);
+        }}
+      />
     </div>
   );
 };
